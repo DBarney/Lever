@@ -1,77 +1,82 @@
-package api
+package lever
 
 import (
-	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 )
 
-type middleware func(*state, http.HandlerFunc) http.HandlerFunc
-type middlewares []middleware
+// Middleware allows wrapping an http handler with functionality before or after
+// the request. such as authorization or logging
+type Middleware[T any] func(T, http.HandlerFunc) http.HandlerFunc
 
-var NotFound = http.NotFound
+// Middlewares is a slice of Middleware that allow the generation of route handlers
+type Middlewares[T any] []Middleware[T]
 
-func (mid middlewares) Collapse() middleware {
-	reversed := middlewares{}
-	for i := len(mid) - 1; i >= 0; i-- {
-		reversed = append(reversed, mid[i])
-	}
-	return func(s *state, next http.HandlerFunc) http.HandlerFunc {
-		for _, mid := range reversed {
+// Collapse collapses a slice of Middlewares into a single Middleware, this is
+// useful for extending Middlewares into other Missleware slices
+func (mid Middlewares[T]) Collapse() Middleware[T] {
+	current := mid[:]
+	return func(s T, next http.HandlerFunc) http.HandlerFunc {
+		for i := len(current) - 1; i >= 0; i-- {
+			mid := current[i]
 			next = mid(s, next)
 		}
 		return next
 	}
 }
 
-type handlerFactory func([]string) (*state, http.HandlerFunc)
-type route struct {
-	method  string
-	regex   *regexp.Regexp
-	handler handlerFactory
-	mid     middleware
-}
-type Router []route
-
-func abort(matches []string) (*state, http.HandlerFunc) {
-	return nil, nil
-}
-
-func (m middlewares) post(pattern string, handler handlerFactory) route {
+// Post generates and returns a Route for use in a Router.
+func (m Middlewares[T]) Post(pattern string, handler HandlerFactory[T]) Route[T] {
 	return newRoute("POST", pattern, handler, m)
 }
-func (m middlewares) get(pattern string, handler handlerFactory) route {
+
+// Get generates and returns a Route for use in a Router.
+func (m Middlewares[T]) Get(pattern string, handler HandlerFactory[T]) Route[T] {
 	return newRoute("GET", pattern, handler, m)
 }
-func (m middlewares) put(pattern string, handler handlerFactory) route {
+
+// Put generates and returns a Route for use in a Router.
+func (m Middlewares[T]) Put(pattern string, handler HandlerFactory[T]) Route[T] {
 	return newRoute("PUT", pattern, handler, m)
 }
-func (m middlewares) del(pattern string, handler handlerFactory) route {
+
+// Del generates and returns a Route for use in a Router.
+func (m Middlewares[T]) Del(pattern string, handler HandlerFactory[T]) Route[T] {
 	return newRoute("DELETE", pattern, handler, m)
 }
-func (m middlewares) all(pattern string, handler handlerFactory) route {
+
+// All generates and returns a Route for use in a Router.
+func (m Middlewares[T]) All(pattern string, handler HandlerFactory[T]) Route[T] {
 	return newRoute("*", pattern, handler, m)
 }
 
-func newRoute(method, pattern string, handler handlerFactory, mid middlewares) route {
-	return route{method, regexp.MustCompile("^" + pattern + "$"), handler, mid.Collapse()}
+// HandlerFactory is a function that accepts matched parameters and returns a state
+// and a function for handling the request
+type HandlerFactory[T any] func([]string) (T, http.HandlerFunc)
+
+// Route holds all the configuration needed to match url paths to middleware and handlers
+type Route[T any] struct {
+	method  string
+	regex   *regexp.Regexp
+	handler HandlerFactory[T]
+	mid     Middleware[T]
 }
 
-func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// Router is a convience type for dealing with collections of Routes
+type Router[T any] []Route[T]
+
+func newRoute[T any](method, pattern string, handler HandlerFactory[T], mid Middlewares[T]) Route[T] {
+	return Route[T]{method, regexp.MustCompile("^" + pattern + "$"), handler, mid.Collapse()}
+}
+
+// ServeHTTP allows the Rotuer to be added to an HTTP server and route requests to handlers
+func (router Router[T]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var allow []string
 	for _, route := range router {
 		matches := route.regex.FindStringSubmatch(r.URL.Path)
 		if len(matches) == 0 {
 			continue
-		}
-		// html forms can't do DELETE or PUT requests. :P
-		if r.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
-			m := r.PostFormValue("_method")
-			if m != "" {
-				r.Method = m
-				delete(r.PostForm, "_method")
-			}
 		}
 		if r.Method != route.method && route.method != "*" {
 			allow = append(allow, route.method)
@@ -81,11 +86,9 @@ func (router Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		route.mid(state, handler)(w, r)
 		return
 	}
-	if len(allow) > 0 {
-		w.Header().Set("Allow", strings.Join(allow, ", "))
-		http.Error(w, "405 method not allowed", http.StatusMethodNotAllowed)
-		fmt.Println(r.URL.Path, allow, r.Method)
-		return
+	if len(allow) == 0 {
+		http.NotFound(w, r)
 	}
-	NotFound(w, r)
+	w.Header().Set("Allow", strings.Join(allow, ", "))
+	http.Error(w, "405 method not allowed", http.StatusMethodNotAllowed)
 }
