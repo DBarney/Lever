@@ -94,6 +94,7 @@ func (router Router[T]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(allow) == 0 {
 		http.NotFound(w, r)
+		return
 	}
 	w.Header().Set("Allow", strings.Join(allow, ", "))
 	http.Error(w, "405 method not allowed", http.StatusMethodNotAllowed)
