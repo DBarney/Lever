@@ -8,21 +8,24 @@ import (
 
 // Middleware allows wrapping an http handler with functionality before or after
 // the request. such as authorization or logging
-type Middleware[T any] func(T, http.HandlerFunc) http.HandlerFunc
+type Middleware[T any] func(T, http.ResponseWriter, *http.Request) (http.ResponseWriter, *http.Request)
 
 // Middlewares is a slice of Middleware that allow the generation of route handlers
 type Middlewares[T any] []Middleware[T]
 
 // Collapse collapses a slice of Middlewares into a single Middleware, this is
-// useful for extending Middlewares into other Missleware slices
+// useful for extending Middlewares into other Middleware slices
 func (mid Middlewares[T]) Collapse() Middleware[T] {
 	current := mid[:]
-	return func(s T, next http.HandlerFunc) http.HandlerFunc {
+	return func(s T, w http.ResponseWriter, req *http.Request) (http.ResponseWriter, *http.Request) {
 		for i := len(current) - 1; i >= 0; i-- {
 			mid := current[i]
-			next = mid(s, next)
+			w, req = mid(s, w, req)
+			if w == nil || req == nil {
+				return nil, nil
+			}
 		}
-		return next
+		return w, req
 	}
 }
 
@@ -83,7 +86,10 @@ func (router Router[T]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		state, handler := route.handler(matches[1:])
-		route.mid(state, handler)(w, r)
+		w, r = route.mid(state, w, r)
+		if w != nil && r != nil {
+			handler(w, r)
+		}
 		return
 	}
 	if len(allow) == 0 {

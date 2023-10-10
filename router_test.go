@@ -7,7 +7,8 @@ import (
 )
 
 type state struct {
-	called bool
+	called     bool
+	middleware bool
 }
 
 func (s *state) get(w http.ResponseWriter, req *http.Request) {
@@ -19,7 +20,12 @@ func TestGenerics(t *testing.T) {
 	get := func(params []string) (*state, http.HandlerFunc) {
 		return s, s.get
 	}
-	pub := Middlewares[*state]{}
+	pub := Middlewares[*state]{
+		func(s *state, w http.ResponseWriter, req *http.Request) (http.ResponseWriter, *http.Request) {
+			s.middleware = true
+			return w, req
+		},
+	}
 	router := Router[*state]{
 		pub.Get("/", get),
 	}
@@ -30,5 +36,8 @@ func TestGenerics(t *testing.T) {
 
 	if !s.called {
 		t.Fatal("the endpoint was not called correctly")
+	}
+	if !s.middleware {
+		t.Fatal("the middleware was not called correctly")
 	}
 }
