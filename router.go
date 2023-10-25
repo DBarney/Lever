@@ -18,7 +18,7 @@ type Middlewares[T any] []Middleware[T]
 func (mid Middlewares[T]) Collapse() Middleware[T] {
 	current := mid[:]
 	return func(s T, w http.ResponseWriter, req *http.Request) (http.ResponseWriter, *http.Request) {
-		for i := len(current) - 1; i >= 0; i-- {
+		for i := 0; i < len(current); i++ {
 			mid := current[i]
 			w, req = mid(s, w, req)
 			if w == nil || req == nil {
