@@ -31,27 +31,31 @@ func (mid Middlewares[T]) Collapse() Middleware[T] {
 
 // Post generates and returns a Route for use in a Router.
 func (m Middlewares[T]) Post(pattern string, handler HandlerFactory[T]) Route[T] {
-	return newRoute("POST", pattern, handler, m)
+	return m.Route("POST", pattern, handler)
 }
 
 // Get generates and returns a Route for use in a Router.
 func (m Middlewares[T]) Get(pattern string, handler HandlerFactory[T]) Route[T] {
-	return newRoute("GET", pattern, handler, m)
+	return m.Route("GET", pattern, handler)
 }
 
 // Put generates and returns a Route for use in a Router.
 func (m Middlewares[T]) Put(pattern string, handler HandlerFactory[T]) Route[T] {
-	return newRoute("PUT", pattern, handler, m)
+	return m.Route("PUT", pattern, handler)
 }
 
 // Del generates and returns a Route for use in a Router.
 func (m Middlewares[T]) Del(pattern string, handler HandlerFactory[T]) Route[T] {
-	return newRoute("DELETE", pattern, handler, m)
+	return m.Route("DELETE", pattern, handler)
 }
 
 // All generates and returns a Route for use in a Router.
 func (m Middlewares[T]) All(pattern string, handler HandlerFactory[T]) Route[T] {
-	return newRoute("*", pattern, handler, m)
+	return m.Route("*", pattern, handler)
+}
+
+func (m Middlewares[T]) Route(method, pattern string, handler HandlerFactory[T]) Route[T] {
+	return Route[T]{strings.ToUpper(method), regexp.MustCompile("^" + pattern + "$"), handler, m.Collapse()}
 }
 
 // HandlerFactory is a function that accepts matched parameters and returns a state
@@ -68,10 +72,6 @@ type Route[T any] struct {
 
 // Router is a convience type for dealing with collections of Routes
 type Router[T any] []Route[T]
-
-func newRoute[T any](method, pattern string, handler HandlerFactory[T], mid Middlewares[T]) Route[T] {
-	return Route[T]{method, regexp.MustCompile("^" + pattern + "$"), handler, mid.Collapse()}
-}
 
 // ServeHTTP allows the Rotuer to be added to an HTTP server and route requests to handlers
 func (router Router[T]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
